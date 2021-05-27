@@ -1,1 +1,1 @@
-# stock_ml_train_batch
+# stock_ml_training_batch
