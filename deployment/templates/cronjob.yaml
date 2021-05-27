@@ -1,0 +1,20 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: {{ template "application.fullname" . }}
+spec:
+  schedule: "0 8 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: {{ template "application.fullname" . }} 
+            image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+            imagePullPolicy: Never
+            envFrom:
+            - configMapRef:
+                name: {{ template "application.fullname" . }}
+            - secretRef:
+                name: {{ template "application.fullname" . }}
+          restartPolicy: OnFailure
