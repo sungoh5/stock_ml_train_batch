@@ -6,17 +6,18 @@ import pandas as pd
 from pandas import DataFrame
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.python.keras import Sequential
-from tensorflow.python.keras.layers import LSTM, Dropout, Dense
+from tensorflow.python.keras.layers import LSTM, Dropout, Dense, GRU, SimpleRNN
 
 from app.common import mongo
 
 
-def insert_prediction_result(ticker, date: datetime, close, prediction):
-    close = close.T.tolist()[0]
+def insert_prediction_result(algo, ticker, date: datetime, closes, prediction):
+    closes = closes.T.tolist()[0]
     prediction = prediction.T.tolist()[0]
 
-    for i in range(len(close)):
-        mongo.client[f'{ticker}_prediction'].insert({"Date": date, "Close": close[i], "Prediction": prediction[i]})
+    for i in range(len(closes)):
+        mongo.client[f'{ticker}_{algo}_prediction'].insert(
+            {"Date": date, "Close": closes[i], "Prediction": prediction[i]})
         date = date + timedelta(days=1)
 
 
@@ -59,12 +60,26 @@ def get_first_prediction_date(df):
     return period[0][0]
 
 
-def build_model(train_x):
+def build_model(algo, train_x):
     model = Sequential()
-    model.add(LSTM(units=10, activation='relu', return_sequences=True,
-                   input_shape=(train_x.shape[1], train_x.shape[2])))
+    if algo == 'rnn':
+        model.add(SimpleRNN(units=10, activation='relu', return_sequences=True,
+                            input_shape=(train_x.shape[1], train_x.shape[2])))
+    elif algo == 'lstm':
+        model.add(LSTM(units=10, activation='relu', return_sequences=True,
+                       input_shape=(train_x.shape[1], train_x.shape[2])))
+    else:
+        model.add(GRU(units=10, activation='relu', return_sequences=True,
+                      input_shape=(train_x.shape[1], train_x.shape[2])))
     model.add(Dropout(0.1))
-    model.add(LSTM(units=10, activation='relu'))
+
+    if algo == 'rnn':
+        model.add(SimpleRNN(units=10, activation='relu'))
+    elif algo == 'lstm':
+        model.add(LSTM(units=10, activation='relu'))
+    else:
+        model.add(GRU(units=10, activation='relu'))
+
     model.add(Dropout(0.1))
     model.add(Dense(units=1))
     model.summary()
@@ -85,15 +100,17 @@ def run():
 
         train_x, test_x, train_y, test_y = make_train_test_dataset(data_x, data_y)
         # train_x, test_x, train_y, test_y = train_test_split(data_x, data_y, test_size=0.3)
-        model = build_model(train_x)
+        closes = scalar.inverse_transform(test_y)
+        for algo in ('rnn', 'lstm', 'gru'):
+            model = build_model(algo, train_x)
 
-        model.compile(optimizer='adam', loss='mean_squared_error')
-        model.fit(train_x, train_y, epochs=60, batch_size=30)
-        prediction = model.predict(test_x)
-        prediction = scalar.inverse_transform(prediction)
+            model.compile(optimizer='adam', loss='mean_squared_error')
+            model.fit(train_x, train_y, epochs=60, batch_size=30)
+            prediction = model.predict(test_x)
+            prediction = scalar.inverse_transform(prediction)
 
-        first_date = get_first_prediction_date(df)
-        insert_prediction_result(item.get("ticker"),
-                                 pd.to_datetime(first_date),
-                                 close=scalar.inverse_transform(test_y),
-                                 prediction=prediction)
+            first_date = get_first_prediction_date(df)
+            insert_prediction_result(algo, item.get("ticker"),
+                                     pd.to_datetime(first_date),
+                                     closes=closes,
+                                     prediction=prediction)
